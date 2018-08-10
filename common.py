@@ -19,6 +19,8 @@ class table:
     def new_game(self):
         self.scores  = [0,0,0,0]  # Player scores
         self.hands   = [[],[],[],[]]  # Player hands
+        self.first   = True  # First trick or not
+        self.heart_broken  = False  # Hearts broke?
         self.lead    = None  # lead player in current trick
         self.act     = None  # next player to act in current trick
         self.board   = [None,None,None,None]  # Board
@@ -33,6 +35,8 @@ class table:
             sorted(deck[26:39]),
             sorted(deck[39:]),
             ]
+        self.first        = True
+        self.heart_broken = False
         for i in range(4):
             if self.hands[i][0]==(1,2): # 2 of clubs
                 self.lead  = i
@@ -40,6 +44,11 @@ class table:
                 break
     #
     def next_move(self):
+        if self.first:
+            plays = 0
+            play  = human_agent(self.hands[self.act],self.board,self.hands[0],)
+            self.first  = False
+        else:
     #
     def print_state(self):
         for i in range(4):
