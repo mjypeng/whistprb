@@ -111,7 +111,7 @@ class table:
     def deal(self):
         # New Round
         deck  = new_deck()
-        np.random.shuffle(deck)
+        # np.random.shuffle(deck)
         self.players['hand'] = [
             deck[:13].sort_values(),
             deck[13:26].sort_values(),
@@ -215,6 +215,8 @@ class table:
                     max_idx  = self.scores.idxmax()
                     self.scores[:]  = 26
                     self.scores[max_idx]  = 0
+                    print("%d:%s Shot the Moon!!!" % (max_idx,self.players.loc[winner,'name']))
+                    print()
                 #
                 self.players.score  += self.scores
                 #
@@ -236,7 +238,7 @@ class table:
 if __name__ == '__main__':
     t  = table()
     #
-    Nsim  = 1000
+    Nsim  = 10
     results = []
     for i in range(Nsim):
         t.new_game()
@@ -247,5 +249,5 @@ if __name__ == '__main__':
         print()
         results.append(t.players[['name','score']].set_index('name',append=True).score.copy())
     results  = pd.concat(results,1,keys=range(Nsim)).T
-    results['winner']  = results.idxmin(1)
-    print(results)
+    winners  = results.idxmin(1)
+    print(winners.value_counts()/Nsim)
