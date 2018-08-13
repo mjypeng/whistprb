@@ -253,7 +253,9 @@ class table:
 
 def simulation_from_table(t):
     results  = simulation_step(t.act,t.scores.copy(),t.players['hand'].copy(),t.heart_broken,t.trick,t.lead,t.suit,t.board.copy())
-    return [pd.concat([x[1].apply(lambda x:[card_to_console(y) for y in x],axis=0),x[0]],1) for x in results] #.apply(hand_to_console,axis=0)
+    lead     = pd.Series(['',]*4,name='lead')
+    lead[t.lead] = '*'
+    return [pd.concat([lead,x[1].apply(lambda x:[card_to_console(y) if y is not None else '  ' for y in x],axis=0),x[0]],1) for x in results] #.apply(hand_to_console,axis=0)
 
 def simulation_step(act,scores,hands,heart_broken,trick,trick_lead,trick_suit,board):
     hand   = hands[act].copy()
