@@ -17,9 +17,10 @@ def card_to_score(card):
     return (card[0]==4) + 13*(card==(3,12))
 
 def hand_to_score(hand):
-    return sum([x[0]==4 for x in hand]) + 13*((3,12) in list(hand))
+    return sum([x[0]==4 for x in hand]) + 13*((3,12) in tuple(hand))
 
 def playable_mask(hand,trick,trick_suit,heart_broken):
+    hand  = pd.Series(hand,copy=False)
     if trick_suit == 0:
         # Leading if trick_suit == 0
         if trick == 1:
@@ -38,7 +39,12 @@ def playable_mask(hand,trick,trick_suit,heart_broken):
     return mask
 
 def trick_winner(board,suit):
-    return board[board.str[0]==suit].str[1].idxmax()
+    max_rank  = 1
+    for i in range(4):
+        if board[i][0]==suit and board[i][1]>max_rank:
+            max_rank = board[i][1]
+            winner   = i
+    return winner
 
 def card_rank(card,outs):
     # Rank of card if played as lead: 0-based
@@ -255,7 +261,7 @@ def simulation_from_table(t):
     results  = simulation_step(t.act,t.scores.copy(),t.players['hand'].copy(),t.heart_broken,t.trick,t.lead,t.suit,t.board.copy())
     lead     = pd.Series(['',]*4,name='lead')
     lead[t.lead] = '*'
-    return [pd.concat([lead,x[1].apply(lambda x:[card_to_console(y) if y is not None else '  ' for y in x],axis=0),x[0]],1) for x in results] #.apply(hand_to_console,axis=0)
+    return [pd.concat([lead,x[1].apply(lambda x:[card_to_console(y) if y is not None else '  ' for y in x],axis=0),x[0]],1) for x in results]
 
 def simulation_step(act,scores,hands,heart_broken,trick,trick_lead,trick_suit,board):
     hand   = hands[act].copy()
@@ -270,7 +276,7 @@ def simulation_step(act,scores,hands,heart_broken,trick,trick_lead,trick_suit,bo
         winner1  = trick_winner(board1,board1[trick_lead][0])
         scores1  = scores.copy()
         scores1[winner1] += hand_to_score(board1)
-        if scores1.max() == 26:
+        if max(scores1) == 26:
             scores1[scores1.idxmax()]  = -26
             scores1  += 26
         return [(scores1,pd.DataFrame(board1))]
@@ -331,6 +337,102 @@ def simulation_step(act,scores,hands,heart_broken,trick,trick_lead,trick_suit,bo
             board1   = board.copy()
             board1[act]  = card
             results += simulation_step((act + 1)%4,scores,hands1,heart_broken,trick,trick_lead,card[0] if trick_suit==0 else trick_suit,board1)
+        return results
+
+def simulation_from_table2(t):
+    state    = (t.act, tuple(t.scores), tuple(tuple(x) for x in t.players['hand']), t.heart_broken, t.trick, t.lead, t.suit, tuple(t.board))
+    results  = simulation_step2(state)
+    #
+    lead     = pd.Series(['',]*4,name='lead')
+    lead[t.lead] = '*'
+    return [pd.concat([lead,pd.concat([pd.Series([card_to_console(z) if z is not None else '  ' for z in y]) for y in x[1]],1,keys=range(t.trick,t.trick+len(x[1]))),pd.Series(x[0],name='score')],1) for x in results]
+
+def simulation_step2(state):
+    """
+    state = (act,scores,hands,heart_broken,trick,trick_lead,trick_suit,board)
+        act: integer
+        scores: 4x tuple of integers
+        hands: 4x tuple of tuples of cards/2-tuples
+        heart_broken: bool
+        trick: integer
+        trick_lead: integer
+        trick_suit: integer
+        board: 4x tuple of cards/2-tuples or None
+    """
+    act    = state[0]
+    scores = state[1]
+    hands  = state[2]
+    heart_broken = state[3]
+    trick  = state[4]
+    trick_lead   = state[5]
+    trick_suit   = state[6]
+    board  = state[7]
+    #
+    hand   = pd.Series(hands[act],copy=True) # hand will be a Series of cards/2-tuples
+    mask   = playable_mask(hand,trick,trick_suit,heart_broken)
+    playable_hand = tuple(hand) if mask is None else tuple(hand[mask])
+    if trick == 13:
+        # This is the last trick, only one possibility remain
+        # Every hand has only one card
+        board1   = tuple(hands[i][0] if board[i] is None else board[i] for i in range(4))
+        winner1  = trick_winner(board1,board1[trick_lead][0])
+        scores1  = np.array(scores,copy=True)
+        scores1[winner1] += hand_to_score(board1)
+        if scores1.max() == 26:
+            scores1[scores1.argmax()]  = -26
+            scores1  += 26
+        return [(tuple(scores1),(board1,))]
+    elif sum([x is not None for x in board]) == 3:
+        # This move ends a trick
+        if trick == 12:
+            # This move will effectively end the game
+            results  = []
+            for card in playable_hand:
+                # Consider each possible move
+                board1   = tuple(card if i==act else board[i] for i in range(4))
+                winner1  = trick_winner(board1,trick_suit)
+                scores1  = np.array(scores,copy=True)
+                scores1[winner1] += hand_to_score(board1)
+                #
+                board2   = tuple(hand[hand!=card].iloc[0] if i==act else hands[i][0] for i in range(4))
+                winner2  = trick_winner(board2,board2[winner1][0])
+                scores1[winner2] += hand_to_score(board2)
+                if scores1.max() == 26:
+                    scores1[scores1.argmax()]  = -26
+                    scores1  += 26
+                results.append((tuple(scores1),(board1,board2,)))
+            return results
+        else:
+            # This move will end the trick
+            results  = []
+            for card in playable_hand:
+                # Consider each possible move
+                hands1   = tuple(tuple(hand[hand!=card]) if i==act else hands[i] for i in range(4))
+                board1   = tuple(card if i==act else board[i] for i in range(4))
+                winner1  = trick_winner(board1,trick_suit)
+                scores1  = np.array(scores,copy=True)
+                scores1[winner1] += hand_to_score(board1)
+                state1   = (winner1, tuple(scores1), hands1, heart_broken or any([x[0]==4 for x in board1]), trick + 1, winner1, 0, (None,)*4,)
+                res  = simulation_step2(state1)
+                res  = [(x[0],(board1,)+x[1]) for x in res]
+                results += res
+            return results
+    elif trick_suit == 0 and hand_to_score([y for x in hands for y in x]) == 0:
+        # There are no more point cards to win
+        scores1  = np.array(scores,copy=True)
+        if scores1.max() == 26:
+            scores1[scores1.argmax()]  = -26
+            scores1  += 26
+        return [(tuple(scores1),((None,)*4,))]
+    else:
+        # This move continues a trick
+        results  = []
+        for card in playable_hand:
+            # Consider each possible move
+            hands1   = tuple(tuple(hand[hand!=card]) if i==act else hands[i] for i in range(4))
+            board1   = tuple(card if i==act else board[i] for i in range(4))
+            state1   = ((act + 1)%4, scores, hands1, heart_broken, trick, trick_lead, card[0] if trick_suit==0 else trick_suit, board1)
+            results += simulation_step2(state1)
         return results
 
 if __name__ == '__main__':
