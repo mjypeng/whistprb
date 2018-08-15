@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 
+pd.set_option('display.max_columns',None)
+
 #-- Utilities --#
 def new_deck():
     return pd.Series([(suit,rank) for suit in range(1,5) for rank in range(2,15)])
@@ -266,7 +268,7 @@ def simulation_from_table(t,full=True):
     lead[t.lead] = '*'
     return [pd.concat([lead,pd.concat([pd.Series([card_to_console(z) if z is not None else '  ' for z in y]) for y in x[1]],1,keys=range(t.trick,t.trick+len(x[1]))),pd.Series(x[0],name='score')],1) for x in results]
 
-def simulation_step(state,full=True,top=True):
+def simulation_step(state,full=True,equiv_play=True,top=True):
     """
     state = (act,scores,hands,heart_broken,trick,trick_lead,trick_suit,board)
         act: integer
@@ -288,9 +290,22 @@ def simulation_step(state,full=True,top=True):
     trick_suit   = state[6]
     board  = state[7]
     #
-    hand   = pd.Series(hands[act],copy=True) # hand will be a Series of cards/2-tuples
+    hand    = pd.Series(hands[act],copy=True) # hand will be a Series of cards/2-tuples
+    outs    = tuple(y for i,x in enumerate(hands) if i!=act for y in x)
     mask    = playable_mask(hand,trick,trick_suit,heart_broken)
     playable_hand = tuple(hand) if mask is None else tuple(hand[mask])
+    #
+    if equiv_play:
+        #-- Prune equivalent plays --#
+        playable_hand_equiv = []
+        equiv_hash          = set()
+        for x in playable_hand:
+            h  = (x[0],card_rank(x,outs),card_to_score(x),)
+            if h not in equiv_hash:
+                equiv_hash.add(h)
+                playable_hand_equiv.append(x)
+        playable_hand  = tuple(playable_hand_equiv)
+    #
     results = [] # List of final game results for each possible action
     if trick == 13:
         # This is the last trick, only one possibility remain
@@ -300,7 +315,7 @@ def simulation_step(state,full=True,top=True):
         scores1  = np.array(scores,copy=True)
         scores1[winner1] += hand_to_score(board1)
         if scores1.max() == 26:
-            scores1[scores1.argmax()]  = -26
+            scores1[scores1.argmax()] = -26
             scores1  += 26
         return [(tuple(scores1),(board1,))]
     elif sum([x is not None for x in board]) == 3:
@@ -318,7 +333,7 @@ def simulation_step(state,full=True,top=True):
                 winner2  = trick_winner(board2,board2[winner1][0])
                 scores1[winner2] += hand_to_score(board2)
                 if scores1.max() == 26:
-                    scores1[scores1.argmax()]  = -26
+                    scores1[scores1.argmax()] = -26
                     scores1  += 26
                 results.append((tuple(scores1),(board1,board2,)))
         else:
@@ -342,7 +357,7 @@ def simulation_step(state,full=True,top=True):
         # There are no more point cards to win
         scores1  = np.array(scores,copy=True)
         if scores1.max() == 26:
-            scores1[scores1.argmax()]  = -26
+            scores1[scores1.argmax()] = -26
             scores1  += 26
         return [(tuple(scores1),((None,)*4,))]
     else:
