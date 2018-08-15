@@ -257,13 +257,13 @@ class table:
         for i in range(4):
             print("%d (%3d + %2d): %s[%s] [%s]" % (i,self.players.loc[i,'score'],self.scores[i],'*' if i==self.lead else ' ',card_to_console(self.board[i]) if self.board[i] else '  ',hand_to_console(self.players.loc[i,'hand'])))
 
-def simulation_from_table(t):
-    results  = simulation_step(t.act,t.scores.copy(),t.players['hand'].copy(),t.heart_broken,t.trick,t.lead,t.suit,t.board.copy())
+def simulation_from_table_(t):
+    results  = simulation_step_(t.act,t.scores.copy(),t.players['hand'].copy(),t.heart_broken,t.trick,t.lead,t.suit,t.board.copy())
     lead     = pd.Series(['',]*4,name='lead')
     lead[t.lead] = '*'
     return [pd.concat([lead,x[1].apply(lambda x:[card_to_console(y) if y is not None else '  ' for y in x],axis=0),x[0]],1) for x in results]
 
-def simulation_step(act,scores,hands,heart_broken,trick,trick_lead,trick_suit,board):
+def simulation_step_(act,scores,hands,heart_broken,trick,trick_lead,trick_suit,board):
     hand   = hands[act].copy()
     mask   = playable_mask(hand,trick,trick_suit,heart_broken)
     if mask is None: playable_hand = hand.copy()
@@ -316,7 +316,7 @@ def simulation_step(act,scores,hands,heart_broken,trick,trick_lead,trick_suit,bo
                 scores1  = scores.copy()
                 scores1[winner1] += hand_to_score(board1)
                 heart_broken1 = heart_broken or (board1.str[0]==4).any()
-                res  = simulation_step(winner1,scores1,hands1,heart_broken1,trick+1,winner1,0,pd.Series([None]*4,name=trick+1))
+                res  = simulation_step_(winner1,scores1,hands1,heart_broken1,trick+1,winner1,0,pd.Series([None]*4,name=trick+1))
                 res  = [(x[0],pd.concat([board1,x[1]],1)) for x in res]
                 results += res
             return results
@@ -336,18 +336,19 @@ def simulation_step(act,scores,hands,heart_broken,trick,trick_lead,trick_suit,bo
             hands1[act] = hand[hand!=card].copy()
             board1   = board.copy()
             board1[act]  = card
-            results += simulation_step((act + 1)%4,scores,hands1,heart_broken,trick,trick_lead,card[0] if trick_suit==0 else trick_suit,board1)
+            results += simulation_step_((act + 1)%4,scores,hands1,heart_broken,trick,trick_lead,card[0] if trick_suit==0 else trick_suit,board1)
         return results
 
-def simulation_from_table2(t,full=True):
+memoized_states  = {}
+def simulation_from_table(t,full=True):
     state    = (t.act, tuple(t.scores), tuple(tuple(x) for x in t.players['hand']), t.heart_broken, t.trick, t.lead, t.suit, tuple(t.board))
-    results  = simulation_step2(state,full=full,top=True)
+    results  = simulation_step(state,full=full,top=True)
     #
     lead     = pd.Series(['',]*4,name='lead')
     lead[t.lead] = '*'
     return [pd.concat([lead,pd.concat([pd.Series([card_to_console(z) if z is not None else '  ' for z in y]) for y in x[1]],1,keys=range(t.trick,t.trick+len(x[1]))),pd.Series(x[0],name='score')],1) for x in results]
 
-def simulation_step2(state,full=True,top=True):
+def simulation_step(state,full=True,top=True):
     """
     state = (act,scores,hands,heart_broken,trick,trick_lead,trick_suit,board)
         act: integer
@@ -359,6 +360,7 @@ def simulation_step2(state,full=True,top=True):
         trick_suit: integer
         board: 4x tuple of cards/2-tuples or None
     """
+    global memoized_states
     act    = state[0]
     scores = state[1]
     hands  = state[2]
@@ -411,7 +413,10 @@ def simulation_step2(state,full=True,top=True):
                 scores1  = np.array(scores,copy=True)
                 scores1[winner1] += hand_to_score(board1)
                 state1   = (winner1, tuple(scores1), hands1, heart_broken or any([x[0]==4 for x in board1]), trick + 1, winner1, 0, (None,)*4,)
-                res  = simulation_step2(state1,full=full,top=False)
+                res  = simulation_step(state1,full=full,top=False)
+                if state1 in memoized_states:
+                    print("Current state memoized: %s" % ('OK' if res==memoized_states[state1] else 'Fail'))
+                memoized_states[state1]  = res
                 res  = [(x[0],(board1,)+x[1]) for x in res]
                 results += res
     elif trick_suit == 0 and hand_to_score([y for x in hands for y in x]) == 0:
@@ -429,7 +434,11 @@ def simulation_step2(state,full=True,top=True):
             hands1   = tuple(tuple(hand[hand!=card]) if i==act else hands[i] for i in range(4))
             board1   = tuple(card if i==act else board[i] for i in range(4))
             state1   = ((act + 1)%4, scores, hands1, heart_broken, trick, trick_lead, card[0] if trick_suit==0 else trick_suit, board1)
-            results += simulation_step2(state1,full=full,top=False)
+            res      = simulation_step(state1,full=full,top=False)
+            if state1 in memoized_states:
+                print("Current state memoized: %s" % ('OK' if res==memoized_states[state1] else 'Fail'))
+            memoized_states[state1]  = res
+            results += res
     #
     if not full and not top:
         # Pick only paths that leads to optimal results for acting player
