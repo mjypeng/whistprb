@@ -27,9 +27,11 @@ def playable_mask(hand,trick,trick_suit,heart_broken):
         # Leading if trick_suit == 0
         if trick == 1:
             mask  = hand==(1,2)
+        elif heart_broken:
+            mask  = None
         else:
             mask  = hand.str[0]!=4
-            if heart_broken or mask.sum()==0: mask = None
+            if mask.sum()==0: mask = None
     else:
         mask  = hand.str[0]==trick_suit
         if mask.sum()==0:
@@ -219,8 +221,7 @@ class table:
             winner = trick_winner(self.board,self.suit)
             score  = hand_to_score(self.board)
             self.scores[winner] += score
-            if not self.heart_broken and (self.board.str[0]==4).any():
-                self.heart_broken  = True
+            self.heart_broken  = self.heart_broken or (self.board.str[0]==4).any()
             self.discards.loc[self.trick] = self.board
             self.lead     = winner
             self.act      = self.lead
@@ -268,7 +269,7 @@ def simulation_from_table(t,full=True):
     lead[t.lead] = '*'
     return [pd.concat([lead,pd.concat([pd.Series([card_to_console(z) if z is not None else '  ' for z in y]) for y in x[1]],1,keys=range(t.trick,t.trick+len(x[1]))),pd.Series(x[0],name='score')],1) for x in results]
 
-def simulation_step(state,full=True,equiv_play=True,top=True):
+def simulation_step(state,full=True,top=True):
     """
     state = (act,scores,hands,heart_broken,trick,trick_lead,trick_suit,board)
         act: integer
@@ -293,21 +294,36 @@ def simulation_step(state,full=True,equiv_play=True,top=True):
     hand    = pd.Series(hands[act],copy=True) # hand will be a Series of cards/2-tuples
     outs    = tuple(y for i,x in enumerate(hands) if i!=act for y in x)
     mask    = playable_mask(hand,trick,trick_suit,heart_broken)
-    playable_hand = tuple(hand) if mask is None else tuple(hand[mask])
+    playable_hand   = tuple(hand) if mask is None else tuple(hand[mask])
+    unplayed_points = hand_to_score([y for x in hands for y in x])
     #
-    if equiv_play:
-        #-- Prune equivalent plays --#
-        playable_hand_equiv = []
-        equiv_hash          = set()
-        for x in playable_hand:
-            h  = (x[0],card_rank(x,outs),card_to_score(x),)
-            if h not in equiv_hash:
-                equiv_hash.add(h)
-                playable_hand_equiv.append(x)
-        playable_hand  = tuple(playable_hand_equiv)
+    #-- Prune equivalent plays --#
+    playable_hand_equiv = []
+    equiv_hash          = set()
+    for x in playable_hand:
+        h  = (x[0],card_rank(x,outs),card_to_score(x),)
+        if h not in equiv_hash:
+            equiv_hash.add(h)
+            playable_hand_equiv.append(x)
+    playable_hand  = tuple(playable_hand_equiv)
     #
     results = [] # List of final game results for each possible action
-    if trick == 13:
+    if trick_suit == 0 and unplayed_points == 0:
+        # There are no more point cards to win
+        scores1  = np.array(scores,copy=True)
+        if scores1.max() == 26:
+            scores1[scores1.argmax()] = -26
+            scores1  += 26
+        return [(tuple(scores1),((None,)*4,))]
+    elif trick_suit == 0 and heart_broken and all([x[1]==0 for x in equiv_hash]):
+        # Acting and leading player will win all remaining points
+        scores1  = np.array(scores,copy=True)
+        scores1[act] += unplayed_points
+        if scores1.max() == 26:
+            scores1[scores1.argmax()] = -26
+            scores1  += 26
+        return [(tuple(scores1),((None,)*4,))]
+    elif trick == 13:
         # This is the last trick, only one possibility remain
         # Every hand has only one card
         board1   = tuple(hands[i][0] if board[i] is None else board[i] for i in range(4))
@@ -353,13 +369,6 @@ def simulation_step(state,full=True,equiv_play=True,top=True):
                     memoized_states[(state1,full,)]  = res
                 res  = [(x[0],(board1,)+x[1]) for x in res]
                 results += res
-    elif trick_suit == 0 and hand_to_score([y for x in hands for y in x]) == 0:
-        # There are no more point cards to win
-        scores1  = np.array(scores,copy=True)
-        if scores1.max() == 26:
-            scores1[scores1.argmax()] = -26
-            scores1  += 26
-        return [(tuple(scores1),((None,)*4,))]
     else:
         # This move continues a trick
         results  = []
