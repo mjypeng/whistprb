@@ -269,17 +269,17 @@ class table:
             print("%d (%3d + %2d): %s[%s] [%s]" % (i,self.players.loc[i,'score'],self.scores[i],'*' if i==self.lead else ' ',card_to_console(self.board[i]) if self.board[i] else '  ',hand_to_console(self.players.loc[i,'hand'])))
 
 memoized_states  = {}
-def simulation_from_table(t,full=True):
+def simulation_from_table(t,full=True,prune=False):
     state    = (t.act, tuple(t.scores), tuple(tuple(x) for x in t.players['hand']), t.heart_broken, t.trick, t.lead, t.suit, tuple(t.board))
     sim_counts = defaultdict(int)
-    results  = simulation_step(state,full=full,top=True,counts=sim_counts)
+    results  = simulation_step(state,full=full,top=True,counts=sim_counts,prune=prune)
     #
     lead     = pd.Series(['',]*4,name='lead')
     lead[t.lead] = '*'
     results  = [pd.concat([lead,pd.concat([pd.Series([card_to_console(z) if z is not None else '  ' for z in y]) for y in x[1]],1,keys=range(t.trick,t.trick+len(x[1]))),pd.Series(x[0],name='score')],1) for x in results]
     return results,sim_counts
 
-def simulation_step(state,full=True,top=True,counts=None):
+def simulation_step(state,full=True,top=True,counts=None,prune=False):
     """
     state = (act,scores,hands,heart_broken,trick,trick_lead,trick_suit,board)
         act: integer
@@ -303,7 +303,7 @@ def simulation_step(state,full=True,top=True,counts=None):
     board  = state[7]
     #
     hand    = pd.Series(hands[act],copy=True) # hand will be a Series of cards/2-tuples
-    outs    = tuple(y for i,x in enumerate(hands) if i!=act for y in x)
+    outs    = tuple(y for i,x in enumerate(hands) if i!=act for y in x) + tuple(x for x in board if x is not None)
     mask    = playable_mask(hand,trick,trick_suit,heart_broken)
     playable_hand   = tuple(hand) if mask is None else tuple(hand[mask])
     unplayed_points = hand_to_score([y for x in hands for y in x])
@@ -370,6 +370,7 @@ def simulation_step(state,full=True,top=True,counts=None):
         else:
             # This move will end the trick
             counts['expand__trick_end'] += 1
+            beta  = 27 # Current best score for acting player if shooting the moon is no longer possible
             for card in playable_hand:
                 # Consider each possible move
                 hands1   = tuple(tuple(hand[hand!=card]) if i==act else hands[i] for i in range(4))
@@ -377,13 +378,19 @@ def simulation_step(state,full=True,top=True,counts=None):
                 winner1  = trick_winner(board1,trick_suit)
                 scores1  = np.array(scores,copy=True)
                 scores1[winner1] += hand_to_score(board1)
+                if not full and not top and prune and any([scores1[i]>0 for i in range(4) if i!=act]):
+                    if scores1[act] >= beta:
+                        counts['terminal__pruned'] += 1
+                        continue
                 state1   = (winner1, tuple(scores1), hands1, heart_broken or any([x[0]==4 for x in board1]), trick + 1, winner1, 0, (None,)*4,)
                 if (state1,full,) in memoized_states:
                     counts['terminal__memoized'] += 1
                     res  = memoized_states[(state1,full,)]
                 else:
-                    res  = simulation_step(state1,full=full,top=False,counts=counts)
+                    res  = simulation_step(state1,full=full,top=False,counts=counts,prune=prune)
                     memoized_states[(state1,full,)]  = res
+                beta_c  = min([x[0][act] for x in res])
+                if beta_c < beta: beta = beta_c
                 res  = [(x[0],(board1,)+x[1]) for x in res]
                 results += res
     else:
@@ -399,7 +406,7 @@ def simulation_step(state,full=True,top=True,counts=None):
                 counts['terminal__memoized'] += 1
                 res  = memoized_states[(state1,full,)]
             else:
-                res  = simulation_step(state1,full=full,top=False,counts=counts)
+                res  = simulation_step(state1,full=full,top=False,counts=counts,prune=prune)
                 memoized_states[(state1,full,)]  = res
             results += res
     #
