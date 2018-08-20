@@ -5,13 +5,13 @@ import numpy as np
 from collections import defaultdict
 
 #-- Console Output --#
-suitcolor = {1:'\033[30m♣',2:'\033[91m♦',3:'\033[30m♠',4:'\033[91m♥',}
-ordermap  = {2:'2\033[0m',3:'3\033[0m',4:'4\033[0m',5:'5\033[0m',6:'6\033[0m',7:'7\033[0m',8:'8\033[0m',9:'9\033[0m',10:'T\033[0m',11:'J\033[0m',12:'Q\033[0m',13:'K\033[0m',14:'A\033[0m'}
+suitcolor = {0:' ',1:'\033[30m♣',2:'\033[91m♦',3:'\033[30m♠',4:'\033[91m♥',}
+ordermap  = {0:' ',2:'2\033[0m',3:'3\033[0m',4:'4\033[0m',5:'5\033[0m',6:'6\033[0m',7:'7\033[0m',8:'8\033[0m',9:'9\033[0m',10:'T\033[0m',11:'J\033[0m',12:'Q\033[0m',13:'K\033[0m',14:'A\033[0m'}
 def card_to_console(card):
     return suitcolor[card[0]]+ordermap[card[1]]
 
 def hand_to_console(hand):
-    return ' '.join([card_to_console(x) if x else '[]' for x in hand])
+    return ' '.join([card_to_console(x) for x in hand])
 
 def print_state(state):
     """
@@ -171,6 +171,71 @@ def successor(state,prune_equiv=True):
             successors.append((card,state1))
     return successors
 
+def successor_c(state,int prune_equiv=True):
+    """
+    state = (act,scores,hands,heart_broken,trick,trick_lead,trick_suit,board)
+        act: integer
+        scores: 4x tuple of integers
+        hands: 4x tuple of tuples of cards/2-tuples
+        heart_broken: bool
+        trick: integer
+        trick_lead: integer
+        trick_suit: integer
+        board: 4x tuple of cards/2-tuples or None
+    """
+    cdef int i,act,trick,trick_lead
+    act,scores,hands,heart_broken,trick,trick_lead,trick_suit,board  = state
+    if act < 0: return [] # Game over, no successor states
+    #
+    #-- Determine legal moves --#
+    plays  = legal_plays(hands[act],heart_broken,trick,trick_suit)
+    #
+    #-- Prune equivalent plays --#
+    if prune_equiv:
+        outs  = tuple(x for i in range(4) if i!=act for x in hands[i]) + tuple(x for x in board if x)
+        equiv_plays  = []
+        equiv_hash   = set()
+        for card in plays:
+            hc  = (card[0],card_rank(card,outs),card_to_score(card),)
+            if hc not in equiv_hash:
+                equiv_hash.add(hc)
+                equiv_plays.append(card)
+        plays  = tuple(equiv_plays)
+    #
+    #-- Next to act --#
+    successors  = []
+    cdef int act1  = (act + 1)%4
+    if act1 == trick_lead:
+        if trick == 13:
+            # This move will end the round
+            for card in plays:
+                hands1   = tuple(tuple(x for x in hands[i] if x!=card) if i==act else hands[i] for i in range(4))
+                board1   = tuple(card if i==act else board[i] for i in range(4))
+                winner1  = trick_winner(board1,trick_suit)
+                scores1  = tuple(scores[i] + hand_to_score(board1) if i==winner1 else scores[i] for i in range(4))
+                if max(scores1) == 26:
+                    # Some player Shot the Moon
+                    scores1  = tuple(0 if x==26 else 26 for x in scores1)
+                state1   = (-1,scores1,hands1,heart_broken or any([x[0]==4 for x in board1]),-1,-1,0,(None,)*4,)
+                successors.append((card,state1))
+        else:
+            # This move will end the trick
+            for card in plays:
+                hands1   = tuple(tuple(x for x in hands[i] if x!=card) if i==act else hands[i] for i in range(4))
+                board1   = tuple(card if i==act else board[i] for i in range(4))
+                winner1  = trick_winner(board1,trick_suit)
+                scores1  = tuple(scores[i] + hand_to_score(board1) if i==winner1 else scores[i] for i in range(4))
+                state1   = (winner1,scores1,hands1,heart_broken or any([x[0]==4 for x in board1]),trick + 1,winner1,0,(None,)*4,)
+                successors.append((card,state1))
+    else:
+        # This move continues a trick
+        for card in plays:
+            hands1   = tuple(tuple(x for x in hands[i] if x!=card) if i==act else hands[i] for i in range(4))
+            board1   = tuple(card if i==act else (board[i] if trick_suit>0 else None) for i in range(4))
+            state1   = (act1,scores,hands1,heart_broken,trick,trick_lead,card[0] if trick_suit==0 else trick_suit,board1)
+            successors.append((card,state1))
+    return successors
+
 def next_state(state,play=None):
     successors  = successor(state)
     if play:
@@ -180,6 +245,7 @@ def next_state(state,play=None):
     else:
         return successors[np.random.choice(len(successors))][1] if successors else None
 
+#-- Simulation --#
 def simulation(state,goals='min',terminal='round_end',prune=False):
     sim_counts = defaultdict(int)
     results    = simulation_step(state,goals=goals,terminal=terminal,top=True,counts=sim_counts,prune=prune)
@@ -197,7 +263,7 @@ def clear_memoized_states():
     global memoized_states
     memoized_states  = {}
 
-def simulation_step(state,goals='min',terminal='round_end',top=True,counts=None,prune=False):
+def simulation_step(state,goals='min',terminal='round_end',top=True,counts=None,prune=False,engine='python'):
     """
     state = (act,scores,hands,heart_broken,trick,trick_lead,trick_suit,board)
         act: integer
@@ -232,7 +298,7 @@ def simulation_step(state,goals='min',terminal='round_end',top=True,counts=None,
             results     = [] # List of final game results for each possible action
             if (act + 1)%4 == trick_lead:
                 counts['expand__trick_end'] += 1
-                for card,state1 in successor(state):
+                for card,state1 in successors:
                     if (state1,goals,terminal,) in memoized_states:
                         counts['terminal__memoized'] += 1
                         res  = memoized_states[(state1,goals,terminal,)]
@@ -243,7 +309,7 @@ def simulation_step(state,goals='min',terminal='round_end',top=True,counts=None,
                     results += [(x[0],(trick_lead,)+x[1],(board1,)+x[2]) for x in res]
             else:
                 counts['expand__trick_continue'] += 1
-                for card,state1 in successor(state):
+                for card,state1 in successors:
                     if (state1,goals,terminal,) in memoized_states:
                         counts['terminal__memoized'] += 1
                         res  = memoized_states[(state1,goals,terminal,)]

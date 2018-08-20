@@ -1,59 +1,5 @@
 import pandas as pd
 import numpy as np
-from collections import defaultdict
-
-pd.set_option('display.max_columns',None)
-
-#-- Utilities --#
-def new_deck():
-    return pd.Series([(suit,rank) for suit in range(1,5) for rank in range(2,15)])
-
-suitcolor = {1:'\033[30m♣',2:'\033[91m♦',3:'\033[30m♠',4:'\033[91m♥',}
-ordermap  = {2:'2\033[0m',3:'3\033[0m',4:'4\033[0m',5:'5\033[0m',6:'6\033[0m',7:'7\033[0m',8:'8\033[0m',9:'9\033[0m',10:'T\033[0m',11:'J\033[0m',12:'Q\033[0m',13:'K\033[0m',14:'A\033[0m'}
-def card_to_console(card):
-    return suitcolor[card[0]]+ordermap[card[1]]
-
-def hand_to_console(hand):
-    return ' '.join(['[]' if x is None else card_to_console(x) for x in hand])
-
-def card_to_score(card):
-    return (card[0]==4) + 13*(card==(3,12))
-
-def hand_to_score(hand):
-    return sum([x[0]==4 for x in hand]) + 13*((3,12) in tuple(hand))
-
-def playable_mask(hand,trick,trick_suit,heart_broken):
-    hand  = pd.Series(hand,copy=False)
-    if trick_suit == 0:
-        # Leading if trick_suit == 0
-        if trick == 1:
-            mask  = hand==(1,2)
-        elif heart_broken:
-            mask  = None
-        else:
-            mask  = hand.str[0]!=4
-            if mask.sum()==0: mask = None
-    else:
-        mask  = hand.str[0]==trick_suit
-        if mask.sum()==0:
-            if trick == 1:
-                mask  = hand.apply(card_to_score)==0
-                if mask.sum()==0: mask = None
-            else:
-                mask  = None
-    return mask
-
-def trick_winner(board,suit):
-    max_rank  = 1
-    for i in range(4):
-        if board[i][0]==suit and board[i][1]>max_rank:
-            max_rank = board[i][1]
-            winner   = i
-    return winner
-
-def card_rank(card,outs):
-    # Rank of card if played as lead: 0-based
-    return sum([x[0]==card[0] and x[1]>card[1] for x in outs if x is not None])
 
 #-- Agents --#
 def placeholder_agent(state):
@@ -263,21 +209,6 @@ class table:
                     self.deal()
         #
         return True
-    #
-    def print_state(self):
-        for i in range(4):
-            print("%d (%3d + %2d): %s[%s] [%s]" % (i,self.players.loc[i,'score'],self.scores[i],'*' if i==self.lead else ' ',card_to_console(self.board[i]) if self.board[i] else '  ',hand_to_console(self.players.loc[i,'hand'])))
-
-memoized_states  = {}
-def simulation_from_table(t,full=True,prune=False):
-    state    = (t.act, tuple(t.scores), tuple(tuple(x) for x in t.players['hand']), t.heart_broken, t.trick, t.lead, t.suit, tuple(t.board))
-    sim_counts = defaultdict(int)
-    results  = simulation_step(state,full=full,top=True,counts=sim_counts,prune=prune)
-    #
-    lead     = pd.Series(['',]*4,name='lead')
-    lead[t.lead] = '*'
-    results  = [pd.concat([lead,pd.concat([pd.Series([card_to_console(z) if z is not None else '  ' for z in y]) for y in x[1]],1,keys=range(t.trick,t.trick+len(x[1]))),pd.Series(x[0],name='score')],1) for x in results]
-    return results,sim_counts
 
 def simulation_step(state,full=True,top=True,counts=None,prune=False):
     """
