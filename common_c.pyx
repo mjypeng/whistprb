@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from collections import defaultdict
 
+#-- Console Output --#
 suitcolor = {1:'\033[30m♣',2:'\033[91m♦',3:'\033[30m♠',4:'\033[91m♥',}
 ordermap  = {2:'2\033[0m',3:'3\033[0m',4:'4\033[0m',5:'5\033[0m',6:'6\033[0m',7:'7\033[0m',8:'8\033[0m',9:'9\033[0m',10:'T\033[0m',11:'J\033[0m',12:'Q\033[0m',13:'K\033[0m',14:'A\033[0m'}
 def card_to_console(card):
@@ -61,24 +62,20 @@ def legal_plays(hand,heart_broken,trick,trick_suit):
                 plays  = hand
     return plays
 
-# def trick_winner(board,suit):
-#     max_rank  = 1
-#     for i in range(4):
-#         if board[i][0]==suit and board[i][1]>max_rank:
-#             max_rank = board[i][1]
-#             winner   = i
-#     return winner
+def trick_winner(board,suit):
+    max_rank  = 1
+    for i in range(4):
+        if board[i][0]==suit and board[i][1]>max_rank:
+            max_rank = board[i][1]
+            winner   = i
+    return winner
 
-cdef int trick_winner(int board[2][4],int suit):
-    cdef int board_c[4][2]
+cdef int trick_winner_c(int board[4][2],int suit):
     cdef int i, winner
     cdef int max_rank  = 1
     for i in range(4):
-        for j in range(2):
-            board_c[i][j]  = 0 #board[i][j]
-    for i in range(4):
-        if board_c[i][0]==suit and board_c[i][1]>max_rank:
-            max_rank = board_c[i][1]
+        if board[i][0]==suit and board[i][1]>max_rank:
+            max_rank = board[i][1]
             winner   = i
     return winner
 
@@ -147,6 +144,9 @@ def successor(state,prune_equiv=True):
                 board1   = tuple(card if i==act else board[i] for i in range(4))
                 winner1  = trick_winner(board1,trick_suit)
                 scores1  = tuple(scores[i] + hand_to_score(board1) if i==winner1 else scores[i] for i in range(4))
+                if max(scores1) == 26:
+                    # Some player Shot the Moon
+                    scores1  = tuple(0 if x==26 else 26 for x in scores1)
                 state1   = (-1,scores1,hands1,heart_broken or any([x[0]==4 for x in board1]),-1,-1,0,board1,)
                 successors.append((card,state1))
         else:
@@ -181,6 +181,7 @@ def simulation(state,full=True,prune=False):
     results  = [pd.concat([lead,pd.concat([pd.Series([card_to_console(z) if z is not None else '  ' for z in y]) for y in x[2]],1,keys=range(trick,trick+len(x[2]))),pd.Series(x[0],name='score')],1) for x in results]
     return results,sim_counts
 
+memoized_states  = {}
 def simulation_step(state,full=True,top=True,counts=None,prune=False):
     """
     state = (act,scores,hands,heart_broken,trick,trick_lead,trick_suit,board)
@@ -194,16 +195,39 @@ def simulation_step(state,full=True,top=True,counts=None,prune=False):
         board: 4x tuple of cards/2-tuples or None
     counts: please supply a defaultdict(int)
     """
+    global memoized_states
     act,scores,hands,heart_broken,trick,trick_lead,trick_suit,board  = state
     #
-    results = [] # List of final game results for each possible action
-    if trick_suit == 0:
-        for card,state1 in successor(state):
-            res  = simulation_step(state1,full=full,top=False,counts=counts,prune=prune)
-            results += [(x[0],(trick_lead,)+x[1],(board,)+x[2]) for x in res]
+    successors  = successor(state)
+    if successors:
+        results     = [] # List of final game results for each possible action
+        if trick_suit == 0:
+            counts['expand__new_trick'] += 1
+            for card,state1 in successor(state):
+                if (state1,full,) in memoized_states:
+                    counts['terminal__memoized'] += 1
+                    res  = memoized_states[(state1,full,)]
+                else:
+                    res  = simulation_step(state1,full=full,top=False,counts=counts,prune=prune)
+                    memoized_states[(state1,full,)]  = res
+                results += [(x[0],(trick_lead,)+x[1],(board,)+x[2]) for x in res]
+        else:
+            counts['expand__continue_trick'] += 1
+            for card,state1 in successor(state):
+                if (state1,full,) in memoized_states:
+                    counts['terminal__memoized'] += 1
+                    res  = memoized_states[(state1,full,)]
+                else:
+                    res  = simulation_step(state1,full=full,top=False,counts=counts,prune=prune)
+                    memoized_states[(state1,full,)]  = res
+                results += res
+        #
+        if not full and not top:
+            # Pick only paths that leads to optimal results for acting player
+            min_score  = min([x[0][act] for x in results])
+            results    = [x for x in results if x[0][act]==min_score]
+        #
+        return results
     else:
-        for card,state1 in successor(state):
-            res  = simulation_step(state1,full=full,top=False,counts=counts,prune=prune)
-            results += res
-    #
-    return results if len(results)>0 else [(scores,(trick_lead,),(board,))]
+        counts['terminal__game_over'] += 1
+        return [(scores,(),(board,))]
