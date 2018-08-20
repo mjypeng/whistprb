@@ -147,7 +147,7 @@ def successor(state,prune_equiv=True):
                 if max(scores1) == 26:
                     # Some player Shot the Moon
                     scores1  = tuple(0 if x==26 else 26 for x in scores1)
-                state1   = (-1,scores1,hands1,heart_broken or any([x[0]==4 for x in board1]),-1,-1,0,board1,)
+                state1   = (-1,scores1,hands1,heart_broken or any([x[0]==4 for x in board1]),-1,-1,0,(None,)*4,)
                 successors.append((card,state1))
         else:
             # This move will end the trick
@@ -156,7 +156,7 @@ def successor(state,prune_equiv=True):
                 board1   = tuple(card if i==act else board[i] for i in range(4))
                 winner1  = trick_winner(board1,trick_suit)
                 scores1  = tuple(scores[i] + hand_to_score(board1) if i==winner1 else scores[i] for i in range(4))
-                state1   = (winner1,scores1,hands1,heart_broken or any([x[0]==4 for x in board1]),trick + 1,winner1,0,board1,)
+                state1   = (winner1,scores1,hands1,heart_broken or any([x[0]==4 for x in board1]),trick + 1,winner1,0,(None,)*4,)
                 successors.append((card,state1))
     else:
         # This move continues a trick
@@ -167,9 +167,14 @@ def successor(state,prune_equiv=True):
             successors.append((card,state1))
     return successors
 
-def random_next_state(state):
+def next_state(state,play=None):
     successors  = successor(state)
-    return successors[np.random.choice(len(successors))][1] if successors else None
+    if play:
+        for card,state1 in successors:
+            if card==play: return state1
+        return None
+    else:
+        return successors[np.random.choice(len(successors))][1] if successors else None
 
 def simulation(state,full=True,prune=False):
     sim_counts = defaultdict(int)
@@ -201,8 +206,8 @@ def simulation_step(state,full=True,top=True,counts=None,prune=False):
     successors  = successor(state)
     if successors:
         results     = [] # List of final game results for each possible action
-        if trick_suit == 0:
-            counts['expand__new_trick'] += 1
+        if (act + 1)%4 == trick_lead:
+            counts['expand__trick_end'] += 1
             for card,state1 in successor(state):
                 if (state1,full,) in memoized_states:
                     counts['terminal__memoized'] += 1
@@ -210,9 +215,10 @@ def simulation_step(state,full=True,top=True,counts=None,prune=False):
                 else:
                     res  = simulation_step(state1,full=full,top=False,counts=counts,prune=prune)
                     memoized_states[(state1,full,)]  = res
-                results += [(x[0],(trick_lead,)+x[1],(board,)+x[2]) for x in res]
+                board1   = tuple(card if i==act else board[i] for i in range(4))
+                results += [(x[0],(trick_lead,)+x[1],(board1,)+x[2]) for x in res]
         else:
-            counts['expand__continue_trick'] += 1
+            counts['expand__trick_continue'] += 1
             for card,state1 in successor(state):
                 if (state1,full,) in memoized_states:
                     counts['terminal__memoized'] += 1
@@ -230,4 +236,4 @@ def simulation_step(state,full=True,top=True,counts=None,prune=False):
         return results
     else:
         counts['terminal__game_over'] += 1
-        return [(scores,(),(board,))]
+        return [(scores,(),())]
