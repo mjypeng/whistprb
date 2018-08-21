@@ -119,6 +119,7 @@ def successor(state,prune_equiv=True):
         trick_suit: integer
         board: 4x tuple of cards/2-tuples or None
     """
+    cdef int i,act
     act,scores,hands,heart_broken,trick,trick_lead,trick_suit,board  = state
     if act < 0: return [] # Game over, no successor states
     #
@@ -127,7 +128,11 @@ def successor(state,prune_equiv=True):
     #
     #-- Prune equivalent plays --#
     if prune_equiv:
-        outs  = tuple(x for i in range(4) if i!=act for x in hands[i]) + tuple(x for x in board if x)
+        outs  = ()
+        for i in range(4):
+            if i != act: outs += hands[i]
+        outs += tuple(x for x in board if x)
+        # outs  = tuple(x for i in range(4) if i!=act for x in hands[i]) + tuple(x for x in board if x)
         equiv_plays  = []
         equiv_hash   = set()
         for card in plays:
@@ -277,6 +282,7 @@ def simulation_step(state,goals='min',terminal='round_end',top=True,counts=None,
     counts: please supply a defaultdict(int)
     """
     global memoized_states
+    cdef int trick
     act,scores,hands,heart_broken,trick,trick_lead,trick_suit,board  = state
     #
     if terminal == 'score_13' and any([x>=13 for x in scores]):
