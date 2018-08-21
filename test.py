@@ -5,7 +5,7 @@ t0  = time.clock()
 state  = initial_state()
 print_state(state)
 print()
-for _ in range(28):
+for _ in range(24):
     state = next_state(state)
     if state:
         print_state(state)
