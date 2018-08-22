@@ -15,19 +15,19 @@ for _ in range(28):
 
 print(time.clock() - t0)
 
-reset_memoized_states()
+# reset_memoized_states()
 cProfile.runctx("r=simulation(state,goals='min',terminal='round_end',return_path=True)",globals(),locals(),'sim_stats.prf')
 s = pstats.Stats('sim_stats.prf')
 print("return_path=True")
 s.strip_dirs().sort_stats('time').print_stats()
 print()
 
-reset_memoized_states()
-cProfile.runctx("r2=simulation(state,goals='min',terminal='round_end',return_path=False)",globals(),locals(),'sim_stats.prf')
-s = pstats.Stats('sim_stats.prf')
-print("return_path=False")
-s.strip_dirs().sort_stats('time').print_stats()
-print()
+# reset_memoized_states()
+# cProfile.runctx("r2=simulation(state,goals='min',terminal='round_end',return_path=False)",globals(),locals(),'sim_stats.prf')
+# s = pstats.Stats('sim_stats.prf')
+# print("return_path=False")
+# s.strip_dirs().sort_stats('time').print_stats()
+# print()
 
 # t0  = time.clock()
 # r,c = simulation(state,full=True)
