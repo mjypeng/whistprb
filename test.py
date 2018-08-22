@@ -15,7 +15,6 @@ for _ in range(24):
 
 print(time.clock() - t0)
 
-clear_memoized_states()
 cProfile.runctx("p,r,c=simulation(state,goals='min',terminal='round_end')",globals(),locals(),'sim_stats.prf')
 s = pstats.Stats('sim_stats.prf')
 s.strip_dirs().sort_stats('time').print_stats()

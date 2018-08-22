@@ -3,6 +3,7 @@
 import pandas as pd
 import numpy as np
 from collections import defaultdict
+import cachetools
 
 #-- Console Output --#
 suitcolor = {0:' ',1:'\033[30m♣',2:'\033[91m♦',3:'\033[30m♠',4:'\033[91m♥',}
@@ -212,10 +213,13 @@ def simulation(state,goals='min',terminal='round_end',prune=False):
     plays['play']  = plays.play.apply(card_to_console)
     return plays,results,sim_counts
 
-memoized_states  = {}
-def clear_memoized_states():
+memoized_states  = cachetools.LRUCache(maxsize=1000000)
+# def reset_memoized_states(maxsize):
+#     global memoized_states
+#     memoized_states  = cachetools.LRUCache(maxsize=maxsize)
+def get_memoized_states():
     global memoized_states
-    memoized_states  = {}
+    return memoized_states
 
     # cdef int i,j,act,heart_broken,trick,trick_lead,trick_suit
     # act,_scores,_hands,heart_broken,trick,trick_lead,trick_suit,_board  = state
@@ -226,6 +230,11 @@ def clear_memoized_states():
     #     board[i][1] = _board[i][1]
     #     for j in range(2):
 
+def simulation_step_key(state,*args,counts=None,prune=False,**kwargs):
+    # Ignore arguments 'counts' and 'prune'
+    return cachetools.keys.hashkey(*state,*args,**kwargs)
+
+@cachetools.cached(memoized_states,key=simulation_step_key,lock=None)
 def simulation_step(state,goals='min',terminal='round_end',int top=True,counts=None,int prune=False):
     """
     state = (act,scores,hands,heart_broken,trick,trick_lead,trick_suit,board)
@@ -240,7 +249,7 @@ def simulation_step(state,goals='min',terminal='round_end',int top=True,counts=N
     counts: please supply a defaultdict(int)
     """
     global memoized_states
-    print("memoized_states: %d"%len(memoized_states))
+    print("memoized_states: %d"%len(memoized_states),flush=True)
     cdef int i,act,heart_broken,trick,trick_lead,trick_suit,winner1
     act,scores,hands,heart_broken,trick,trick_lead,trick_suit,board  = state
     #
@@ -266,23 +275,13 @@ def simulation_step(state,goals='min',terminal='round_end',int top=True,counts=N
                 counts['expand__trick_end'] += 1
                 board1  = list(board)
                 for card,state1 in successors:
-                    if (state1,goals,terminal,) in memoized_states:
-                        counts['terminal__memoized'] += 1
-                        res  = memoized_states[(state1,goals,terminal,)]
-                    else:
-                        res  = simulation_step(state1,goals=goals,terminal=terminal,top=False,counts=counts,prune=prune)
-                        memoized_states[(state1,goals,terminal,)]  = res
+                    res  = simulation_step(state1,goals=goals,terminal=terminal,top=False,counts=counts,prune=prune)
                     board1[act]  = card
                     results += [(x[0],(trick_lead,)+x[1],(tuple(board1),)+x[2]) for x in res]
             else:
                 counts['expand__trick_continue'] += 1
                 for card,state1 in successors:
-                    if (state1,goals,terminal,) in memoized_states:
-                        counts['terminal__memoized'] += 1
-                        res  = memoized_states[(state1,goals,terminal,)]
-                    else:
-                        res  = simulation_step(state1,goals=goals,terminal=terminal,top=False,counts=counts,prune=prune)
-                        memoized_states[(state1,goals,terminal,)]  = res
+                    res  = simulation_step(state1,goals=goals,terminal=terminal,top=False,counts=counts,prune=prune)
                     results += res
             #
             if not top:
