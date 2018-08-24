@@ -205,6 +205,10 @@ def successor(state,int prune_equiv=True):
     return successors
 
 def next_state(state,play=None):
+    """
+    play = None: Random
+    play = card = (suit,rank)
+    """
     successors  = successor(state,prune_equiv=False)
     if play:
         for card,state1 in successors:
@@ -213,6 +217,30 @@ def next_state(state,play=None):
         return state
     else:
         return successors[np.random.choice(len(successors))][1] if successors else None
+
+def state_to_info(state):
+    """
+    Convert game state to information set (w.r.t. acting player).
+    state = (act,scores,hands,heart_broken,trick,trick_lead,trick_suit,board)
+        act: integer
+        scores: 4x tuple of integers
+        hands: 4x tuple of tuples of cards/2-tuples
+        heart_broken: bool
+        trick: integer
+        trick_lead: integer
+        trick_suit: integer
+        board: 4x tuple of cards/2-tuples or None
+    """
+    act,scores,hands,heart_broken,trick,trick_lead,trick_suit,board = state
+    hand  = hands[act]
+    outs  = []
+    for i in range(4):
+        if i != act: outs += hands[i]
+    # outs += [x for x in board if x[0]]
+    outs.sort()
+    plays = legal_plays(hand,heart_broken,trick,trick_suit)
+    info  = (act,scores,plays,hand,outs,heart_broken,trick,trick_lead,trick_suit,board)
+    return info
 
 #-- Simulation --#
 def simulation(state,goals='min',terminal='round_end',return_path=False,prune=False):
@@ -287,7 +315,7 @@ def simulation_step(state,goals='min',terminal='round_end',int return_path=False
         # board1  = tuple(board[i] if board[i][0] else hands[i][0] for i in range(4))
         winner1 = trick_winner_c(board1_,board1_[trick_lead][0])
         scores1 = list(scores)
-        scores1[winner1] += hand_to_score(board1_)
+        scores1[winner1] += board_score_c(board1_)
         if max(scores1) == 26:
             # Some player Shot the Moon
             scores1  = tuple(0 if x==26 else 26 for x in scores1)

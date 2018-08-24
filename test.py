@@ -1,11 +1,13 @@
 import time, pstats, cProfile, io
 from common import *
 
+# Case Studies:
+
 t0  = time.clock()
 state  = initial_state()
 print_state(state)
 print()
-for _ in range(28):
+for _ in range(24):
     state = next_state(state)
     if state:
         print_state(state)
@@ -21,6 +23,9 @@ s = pstats.Stats('sim_stats.prf')
 print("return_path=True")
 s.strip_dirs().sort_stats('time').print_stats()
 print()
+
+print_state(state)
+print(pd.DataFrame([(card_to_console(x[0]),x[1]) for x in r],columns=('play','scores')).drop_duplicates())
 
 # reset_memoized_states()
 # cProfile.runctx("r2=simulation(state,goals='min',terminal='round_end',return_path=False)",globals(),locals(),'sim_stats.prf')

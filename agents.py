@@ -1,86 +1,92 @@
-import pandas as pd
-import numpy as np
+from common import *
 
 #-- Agents --#
-def placeholder_agent(state):
-    playable_hand  = state['hand'][state['hand'].play>=0]
-    playable_hand['order']  = playable_hand.card.str[1]
-    play  = playable_hand.sort_values(by='order',ascending=True).iloc[0].play
-    #
-    print('Placeholder Play',hand_to_console(state['hand'].loc[state['hand'].play>=0,'card']),'=>',card_to_console(state['hand'].loc[state['hand'].play==play,'card'].iloc[0]))
+def placeholder_agent(info):
+    """
+    info  = (act,scores,plays,hand,outs,heart_broken,trick,trick_lead,trick_suit,board)
+    """
+    act,scores,plays,hand,outs,heart_broken,trick,trick_lead,trick_suit,board = info
+    play  = plays[0]
+    print('Placeholder Play',hand_to_console(plays),'=>',card_to_console(play))
     print()
     return play
 
-def rule_based_agent(state):
-    outs  = new_deck()
-    outs  = outs[~outs.isin(state['board'])]
-    outs  = outs[~outs.isin(state['hand'].card)]
-    outs  = outs[~outs.isin(state['discards'].values.flatten())]
+def random_agent(info):
+    """
+    info  = (act,scores,plays,hand,outs,heart_broken,trick,trick_lead,trick_suit,board)
+    """
+    act,scores,plays,hand,outs,heart_broken,trick,trick_lead,trick_suit,board = info
+    play  = np.random.choice(pd.Series(plays))
+    print('Random Play',hand_to_console(plays),'=>',card_to_console(play))
+    print()
+    return play
+
+def rule_based_agent(info):
+    act,scores,plays,hand,outs,heart_broken,trick,trick_lead,trick_suit,board = info
     #
-    state['hand']['score']     = state['hand'].card.apply(card_to_score)
-    state['hand']['outs_rank'] = state['hand'].card.apply(lambda x:card_rank(x,outs))
-    state['hand']['board_rank'] = state['hand'].card.apply(lambda x:card_rank(x,state['board']) if x[0]==state['trick_suit'] else 1) if state['trick_suit']>0 else 0
+    plays  = pd.DataFrame(pd.Series(plays),columns=('card',))
+    outs  += tuple(x for x in board if x[0])
     #
-    playable_hand  = state['hand'][state['hand'].play>=0]
-    if (playable_hand.board_rank>0).any():
+    plays['score']      = plays.card.apply(card_to_score)
+    plays['outs_rank']  = plays.card.apply(lambda x:card_rank(x,outs))
+    plays['board_rank'] = plays.card.apply(lambda x:card_rank(x,board) if x[0]==trick_suit else 1) if trick_suit>0 else 0
+    #
+    if (plays.board_rank>0).any():
         # There exists some legal play that is guaranteed to lose this trick
-        mask  = playable_hand.board_rank>0
+        mask  = plays.board_rank>0
         # Play the card with highest score then highest rank (w.r.t. outs)
-        play  = playable_hand[mask].sort_values(by=['score','outs_rank','card'],ascending=[False,True,False]).iloc[0].play
-    elif state['board'].notnull().sum() == 3:
+        play  = plays[mask].sort_values(by=['score','outs_rank','card'],ascending=[False,True,False]).iloc[0].card
+    elif len([x for x in board if x[0]]) == 3:
         # Three players has played so we are guaranteed to win this trick
         # Play the card with lowest score then highest rank (w.r.t. outs)
-        play  = playable_hand.sort_values(by=['score','outs_rank','card'],ascending=[True,True,False]).iloc[0].play
+        play  = plays.sort_values(by=['score','outs_rank','card'],ascending=[True,True,False]).iloc[0].card
     else:
         # Leading or There are no legal play guaranteed to lose this trick
         # Play the card with lowest rank (w.r.t. outs)
-        play  = playable_hand.sort_values(by=['outs_rank','card'],ascending=[False,True]).iloc[0].play
+        play  = plays.sort_values(by=['outs_rank','card'],ascending=[False,True]).iloc[0].card
     #
-    print('Rule Based Play',hand_to_console(state['hand'].loc[state['hand'].play>=0,'card']),'=>',card_to_console(state['hand'].loc[state['hand'].play==play,'card'].iloc[0]))
+    print('Rule Based Play',hand_to_console(plays.card),'=>',card_to_console(play))
     print()
     return play
 
-def random_agent(state):
-    play  = np.random.choice(range(state['hand'].play.max()+1))
-    print('Random Play',hand_to_console(state['hand'].loc[state['hand'].play>=0,'card']),'=>',card_to_console(state['hand'].loc[state['hand'].play==play,'card'].iloc[0]))
-    print()
-    return play
-
-def human_agent(state):
-    outs  = new_deck()
-    outs  = outs[~outs.isin(state['board'])]
-    outs  = outs[~outs.isin(state['hand'].card)]
-    outs  = outs[~outs.isin(state['discards'].values.flatten())]
+def human_agent(info):
+    act,scores,plays,hand,outs,heart_broken,trick,trick_lead,trick_suit,board = info
+    #
+    hand   = pd.DataFrame(pd.Series(hand),columns=('card',))
+    outs  += tuple(x for x in board if x[0])
     out_suits  = [len(outs),0,0,0,0]
     for i in range(1,5):
         out_suits[i]  = (outs.str[0]==i).sum()
     #
-    state['hand']['score']     = state['hand'].card.apply(card_to_score)
-    state['hand']['outs_rank'] = state['hand'].card.apply(lambda x:card_rank(x,outs))
-    state['hand']['board_rank'] = state['hand'].card.apply(lambda x:card_rank(x,state['board']) if x[0]==state['trick_suit'] else 1) if state['trick_suit']>0 else 0
+    hand['score']      = hand.card.apply(card_to_score)
+    hand['outs_rank']  = hand.card.apply(lambda x:card_rank(x,outs))
+    hand['board_rank'] = hand.card.apply(lambda x:card_rank(x,board) if x[0]==trick_suit else 1) if trick_suit>0 else 0
+    hand['play']       = 0
+    i  = 1
+    for idx,row in hand.iterrows():
+        if row.card in plays:
+            hand.loc[idx,'play']  = i
+            i  += 1
     #
     print('Board:')
-    if len(state['discards']):
-        for idx,row in state['discards'].iterrows():
-            print(("%-2d   "%idx) + hand_to_console(row).replace(' ','  '))
-    print(("%-2d   "%state['trick']) + hand_to_console(state['board']).replace(' ','  '))
+    print(("%-2d   "%state['trick']) + hand_to_console(board).replace(' ','  '))
     #
     print('Choose Card to Play:')
-    print('       '+hand_to_console(state['hand'].card).replace(' ','  '),end='')
+    print('       '+hand_to_console(hand.card).replace(' ','  '),end='')
     print('    '+suitcolor[1]+("\033[0m:%-2d"%out_suits[1])+'  '+suitcolor[2]+("\033[0m:%-2d"%out_suits[2]))
-    print('outs ',*["%3d"%i for i in state['hand'].outs_rank],end='')
+    print('outs ',*["%3d"%i for i in hand.outs_rank],end='')
     print('    '+suitcolor[3]+("\033[0m:%-2d"%out_suits[3])+'  '+suitcolor[4]+("\033[0m:%-2d"%out_suits[4]))
-    if state['trick_suit'] > 0:
-        print('board',*["%3d"%i if i>=0 else '   ' for i in state['hand'].board_rank])
-    print('play ',*["%3d"%i if i>=0 else '   ' for i in state['hand'].play])
+    if trick_suit > 0:
+        print('board',*["%3d"%i if i>=0 else '   ' for i in hand.board_rank])
+    print('play ',*["%3d"%i if i>0 else '   ' for i in hand.play])
     try:
-        play = input()
+        play  = input()
         if play.lower() == 'q':
             exit(0)
         else:
             play = int(play)
     except: play = 0
-    return play
+    return hand.loc[(hand.play==play).idxmax(),'card']
 
 #-- Game --#
 class table:
@@ -95,267 +101,49 @@ class table:
     #
     def deal(self):
         # New Round
-        deck  = new_deck()
-        np.random.shuffle(deck)
-        self.players['hand'] = [
-            deck[:13].sort_values(),
-            deck[13:26].sort_values(),
-            deck[26:39].sort_values(),
-            deck[39:].sort_values(),
-            ]
-        self.round_id    += 1
-        self.trick        = 1
-        self.heart_broken = False
-        self.lead     = -1  # lead player in current trick
-        self.act      = -1  # next player to act in current trick
-        self.suit     = 0   # Suit of the current trick: 0 means no one played yet
-        self.board    = pd.Series([None,]*4,name=1)    # Board
-        self.discards = pd.DataFrame(columns=self.players.index) # Discarded cards
-        self.scores   = pd.Series([0,]*4,name='score') # Scores for this round
+        self.deck   = new_deck(shuffle=True)
+        self.state  = initial_state(deck=self.deck)
+        self.round_id += 1
         #
-        #-- Determine first trick lead --#
-        for i in range(4):
-            if self.players.loc[i,'hand'].iloc[0]==(1,2): # 2 of clubs
-                self.lead  = i
-                self.act   = i
-                break
-        #
-        print("Round %d"%self.round_id)
-        print("Trick 1")
         self.print_state()
-        print()
     #
     def next_move(self,override_play=None):
-        hand  = pd.DataFrame(self.players.loc[self.act,'hand'].copy(),columns=('card',))
-        mask  = playable_mask(hand.card,self.trick,self.suit,self.heart_broken)
-        #
-        hand['play']  = -1
-        if mask is not None:
-            hand.loc[mask,'play']  = range(mask.sum())
-        else:
-            hand['play']  = range(len(hand))
-        #
         if override_play is None:
-            state = {
-                'id':           self.act,
-                'scores':       self.players.score.copy(),
-                'round_scores': self.scores.copy(),
-                'hand':         hand.copy(),
-                'trick':        self.trick,
-                'trick_lead':   self.lead,
-                'trick_suit':   self.suit,
-                'heart_broken': self.heart_broken,
-                'board':        self.board.copy(),
-                'discards':     self.discards.copy(),
-                }
-            play  = self.agents[self.act](state)
-            if play >= 0 and play <= hand.play.max():
-                play  = hand.loc[hand.play==play,'card'].iloc[0]
-            else:
-                play  = hand.loc[hand.play==0,'card'].iloc[0]
+            info  = state_to_info(self.state)
+            play  = self.agents[self.state[0]](info)
+            self.state = next_state(self.state,play)
         else:
-            if override_play in hand[hand.play>=0].card.tolist():
-                play  = override_play
-            else:
-                print('Illegal Play')
-                return False
-        #
-        self.board[self.act]  = play
-        self.players.loc[self.act,'hand'].drop(hand.index[hand.card==play],'index',inplace=True)
+            self.state = next_state(self.state,override_play)
         #
         self.print_state()
-        print()
-        #
-        if self.act == self.lead:
-            self.suit   = self.board[self.act][0]
-        self.act    = (self.act + 1) % 4
-        #
-        if self.act == self.lead:
-            # All players have played in this trick
-            winner = trick_winner(self.board,self.suit)
-            score  = hand_to_score(self.board)
-            self.scores[winner] += score
-            self.heart_broken  = self.heart_broken or (self.board.str[0]==4).any()
-            self.discards.loc[self.trick] = self.board
-            self.lead     = winner
-            self.act      = self.lead
-            self.trick   += 1
-            self.board    = pd.Series([None,]*4,name=self.trick)
-            self.suit     = 0
+        if self.state[0] < 0:
+            # Round End
+            self.players.score  += self.state[1]
             #
-            if self.trick <= 13:
-                print("Trick %d" % self.trick)
-                self.print_state()
+            if (self.players.score > 100).any():
+                # Game Over
+                winner  = self.players.score.idxmin()
+                print("Winner is %d:%s!!!" % (winner,self.players.loc[winner,'name']))
                 print()
+                return False
             else:
-                # Round End
-                # Shoot the Moon
-                if self.scores.max() == 26:
-                    max_idx  = self.scores.idxmax()
-                    self.scores[:]  = 26
-                    self.scores[max_idx]  = 0
-                    print("%d:%s Shot the Moon!!!" % (max_idx,self.players.loc[winner,'name']))
-                    print()
-                #
-                self.players.score  += self.scores
-                #
-                if (self.players.score > 100).any():
-                    # Game Over
-                    winner  = self.players.score.idxmin()
-                    print("Winner is %d:%s!!!" % (winner,self.players.loc[winner,'name']))
-                    print()
-                    return False
-                else:
-                    self.deal()
+                self.deal()
         #
         return True
-
-def simulation_step(state,full=True,top=True,counts=None,prune=False):
-    """
-    state = (act,scores,hands,heart_broken,trick,trick_lead,trick_suit,board)
-        act: integer
-        scores: 4x tuple of integers
-        hands: 4x tuple of tuples of cards/2-tuples
-        heart_broken: bool
-        trick: integer
-        trick_lead: integer
-        trick_suit: integer
-        board: 4x tuple of cards/2-tuples or None
-    counts: please supply a defaultdict(int)
-    """
-    global memoized_states
-    act    = state[0]
-    scores = state[1]
-    hands  = state[2]
-    heart_broken = state[3]
-    trick  = state[4]
-    trick_lead   = state[5]
-    trick_suit   = state[6]
-    board  = state[7]
     #
-    hand    = pd.Series(hands[act],copy=True) # hand will be a Series of cards/2-tuples
-    outs    = tuple(y for i,x in enumerate(hands) if i!=act for y in x) + tuple(x for x in board if x is not None)
-    mask    = playable_mask(hand,trick,trick_suit,heart_broken)
-    playable_hand   = tuple(hand) if mask is None else tuple(hand[mask])
-    unplayed_points = hand_to_score([y for x in hands for y in x])
-    #
-    #-- Prune equivalent plays --#
-    playable_hand_equiv = []
-    equiv_hash          = set()
-    for x in playable_hand:
-        h  = (x[0],card_rank(x,outs),card_to_score(x),)
-        if h not in equiv_hash:
-            equiv_hash.add(h)
-            playable_hand_equiv.append(x)
-    playable_hand  = tuple(playable_hand_equiv)
-    #
-    results = [] # List of final game results for each possible action
-    if trick_suit == 0 and unplayed_points == 0:
-        # There are no more point cards to win
-        counts['terminal__all_points_taken'] += 1
-        scores1  = np.array(scores,copy=True)
-        if scores1.max() == 26:
-            scores1[scores1.argmax()] = -26
-            scores1  += 26
-        return [(tuple(scores1),((None,)*4,))]
-    elif trick_suit == 0 and heart_broken and all([x[1]==0 for x in equiv_hash]):
-        # Acting and leading player will win all remaining points
-        counts['terminal__player_will_take_all_points'] += 1
-        scores1  = np.array(scores,copy=True)
-        scores1[act] += unplayed_points
-        if scores1.max() == 26:
-            scores1[scores1.argmax()] = -26
-            scores1  += 26
-        return [(tuple(scores1),((None,)*4,))]
-    elif trick == 13:
-        # This is the last trick, only one possibility remain
-        # Every hand has only one card
-        counts['terminal__last_trick'] += 1
-        board1   = tuple(hands[i][0] if board[i] is None else board[i] for i in range(4))
-        winner1  = trick_winner(board1,board1[trick_lead][0])
-        scores1  = np.array(scores,copy=True)
-        scores1[winner1] += hand_to_score(board1)
-        if scores1.max() == 26:
-            scores1[scores1.argmax()] = -26
-            scores1  += 26
-        return [(tuple(scores1),(board1,))]
-    elif sum([x is not None for x in board]) == 3:
-        # This move ends a trick
-        if trick == 12:
-            # This move will effectively end the game
-            counts['terminal__last_decision_point'] += 1
-            for card in playable_hand:
-                # Consider each possible move
-                board1   = tuple(card if i==act else board[i] for i in range(4))
-                winner1  = trick_winner(board1,trick_suit)
-                scores1  = np.array(scores,copy=True)
-                scores1[winner1] += hand_to_score(board1)
-                #
-                board2   = tuple(hand[hand!=card].iloc[0] if i==act else hands[i][0] for i in range(4))
-                winner2  = trick_winner(board2,board2[winner1][0])
-                scores1[winner2] += hand_to_score(board2)
-                if scores1.max() == 26:
-                    scores1[scores1.argmax()] = -26
-                    scores1  += 26
-                results.append((tuple(scores1),(board1,board2,)))
-        else:
-            # This move will end the trick
-            counts['expand__trick_end'] += 1
-            beta  = 27 # Current best score for acting player if shooting the moon is no longer possible
-            for card in playable_hand:
-                # Consider each possible move
-                hands1   = tuple(tuple(hand[hand!=card]) if i==act else hands[i] for i in range(4))
-                board1   = tuple(card if i==act else board[i] for i in range(4))
-                winner1  = trick_winner(board1,trick_suit)
-                scores1  = np.array(scores,copy=True)
-                scores1[winner1] += hand_to_score(board1)
-                if not full and not top and prune and any([scores1[i]>0 for i in range(4) if i!=act]):
-                    if scores1[act] >= beta:
-                        counts['terminal__pruned'] += 1
-                        continue
-                state1   = (winner1, tuple(scores1), hands1, heart_broken or any([x[0]==4 for x in board1]), trick + 1, winner1, 0, (None,)*4,)
-                if (state1,full,) in memoized_states:
-                    counts['terminal__memoized'] += 1
-                    res  = memoized_states[(state1,full,)]
-                else:
-                    res  = simulation_step(state1,full=full,top=False,counts=counts,prune=prune)
-                    memoized_states[(state1,full,)]  = res
-                beta_c  = min([x[0][act] for x in res])
-                if beta_c < beta: beta = beta_c
-                res  = [(x[0],(board1,)+x[1]) for x in res]
-                results += res
-    else:
-        # This move continues a trick
-        counts['expand__trick_continue'] += 1
-        results  = []
-        for card in playable_hand:
-            # Consider each possible move
-            hands1   = tuple(tuple(hand[hand!=card]) if i==act else hands[i] for i in range(4))
-            board1   = tuple(card if i==act else board[i] for i in range(4))
-            state1   = ((act + 1)%4, scores, hands1, heart_broken, trick, trick_lead, card[0] if trick_suit==0 else trick_suit, board1)
-            if (state1,full,) in memoized_states:
-                counts['terminal__memoized'] += 1
-                res  = memoized_states[(state1,full,)]
-            else:
-                res  = simulation_step(state1,full=full,top=False,counts=counts,prune=prune)
-                memoized_states[(state1,full,)]  = res
-            results += res
-    #
-    if not full and not top:
-        # Pick only paths that leads to optimal results for acting player
-        min_score  = min([x[0][act] for x in results])
-        results    = [x for x in results if x[0][act]==min_score]
-    return results
+    def print_state(self):
+        print("Round %d, Scores = %s"%(self.round_id,str(tuple(self.players.score))))
+        print_state(self.state)
+        print()
 
 if __name__ == '__main__':
-    t  = table(human_agent) #table() #
+    t  = table() #table(human_agent) #
     #
     Nsim  = 10
     results = []
     for i in range(Nsim):
         t.new_game()
         t.deal()
-        exit(0)
         while t.next_move():
             pass
         print(t.players[['name','score']])
