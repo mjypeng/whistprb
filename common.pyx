@@ -1,4 +1,5 @@
-# cython: language_level=3, profile=True
+# cython: language_level=3, profile=True, linetrace=True, binding=True
+# distutils: define_macros=CYTHON_TRACE_NOGIL=1
 
 import pandas as pd
 import numpy as np
@@ -143,7 +144,6 @@ def successor(state,int prune_equiv=True):
         for i in range(4):
             if i != act: outs += hands[i]
         outs += tuple(x for x in board if x[0])
-        # outs  = tuple(x for i in range(4) if i!=act for x in hands[i]) + tuple(x for x in board if x)
         equiv_plays  = []
         equiv_hash   = set()
         for card in plays:
@@ -159,8 +159,6 @@ def successor(state,int prune_equiv=True):
     act1  = (act + 1)%4
     if act1 == trick_lead:
         board1_  = board
-        # for i in range(4):
-        #     board1_[i][0],board1_[i][1] = board[i][0],board[i][1]
         if trick == 13:
             # This move will end the round
             for card in plays:
@@ -168,7 +166,6 @@ def successor(state,int prune_equiv=True):
                 hand.remove(card)
                 hands1[act]  = tuple(hand)
                 board1_[act] = card
-                # board1_[act][0],board1_[act][1] = card[0],card[1]
                 winner1  = trick_winner_c(board1_,trick_suit)
                 scores1  = list(scores)
                 scores1[winner1] += board_score_c(board1_)
@@ -256,7 +253,7 @@ def simulation(state,goals='min',terminal='round_end',return_path=False,prune=Fa
     plays['play']  = plays.play.apply(card_to_console)
     return plays,results,sim_counts
 
-memoized_states  = cachetools.LRUCache(maxsize=2000000)
+memoized_states  = cachetools.LRUCache(maxsize=1000000)
 def reset_memoized_states():
     global memoized_states
     while len(memoized_states): _ = memoized_states.popitem()
@@ -278,7 +275,7 @@ def simulation_step_key(state,*args,counts=None,prune=False,**kwargs):
     # Ignore arguments 'counts' and 'prune'
     return cachetools.keys.hashkey(*state,*args,**kwargs)
 
-@cachetools.cached(memoized_states,key=simulation_step_key,lock=None)
+# @cachetools.cached(memoized_states,key=simulation_step_key,lock=None)
 def simulation_step(state,goals='min',terminal='round_end',int return_path=False,int top=True,counts=None,int prune=False):
     """
     state = (act,scores,hands,heart_broken,trick,trick_lead,trick_suit,board)
@@ -292,8 +289,10 @@ def simulation_step(state,goals='min',terminal='round_end',int return_path=False
         board: 4x tuple of cards/2-tuples or None
     counts: please supply a defaultdict(int)
     """
-    cdef int i,act,heart_broken,trick,trick_lead,trick_suit,winner1
+    cdef int i,act,heart_broken,trick,trick_lead,trick_suit
+    cdef int board_score1,winner1,moonshot
     cdef int board1_[4][2]
+    cdef int scores1_[4]
     act,scores,hands,heart_broken,trick,trick_lead,trick_suit,board  = state
     # global memoized_states
     # if len(memoized_states)%100 == 0:
@@ -305,22 +304,32 @@ def simulation_step(state,goals='min',terminal='round_end',int return_path=False
     #
     if not top and trick == 13:
         counts['terminal__trick_13'] += 1
+        board1_  = board
         for i in range(4):
-            if board[i][0]:
-                board1_[i][0]  = board[i][0]
-                board1_[i][1]  = board[i][1]
-            else:
-                board1_[i][0]  = hands[i][0][0]
-                board1_[i][1]  = hands[i][0][1]
-        # board1  = tuple(board[i] if board[i][0] else hands[i][0] for i in range(4))
-        winner1 = trick_winner_c(board1_,board1_[trick_lead][0])
-        scores1 = list(scores)
-        scores1[winner1] += board_score_c(board1_)
-        if max(scores1) == 26:
-            # Some player Shot the Moon
-            scores1  = tuple(0 if x==26 else 26 for x in scores1)
-        board1  = tuple((board1_[i][0],board1_[i][1]) for i in range(4))
-        return [((0,0,),tuple(scores1),(trick_lead,),(board1,))] if return_path else [((0,0,),tuple(scores1),)]
+            if not board1_[i][0]: board1_[i] = hands[i][0]
+        board_score1  = board_score_c(board1_)
+        scores1_      = scores
+        # scores1       = list(scores)
+        if board_score1:
+            winner1   = trick_winner_c(board1_,board1_[trick_lead][0])
+            scores1_[winner1] += board_score1
+        moonshot  = False
+        for i in range(4):
+            if scores1_[i] == 26:
+                moonshot  = True
+                break
+        if moonshot:
+            for i in range(4):
+                if scores1_[i] == 26: scores1_[i]  = 0
+                else: scores1_[i]  = 26
+        # if max(scores1) == 26:
+        #     # Some player Shot the Moon
+        #     scores1  = tuple(0 if x==26 else 26 for x in scores1)
+        if return_path:
+            board1  = tuple((board1_[i][0],board1_[i][1]) for i in range(4))
+            return [((0,0,),tuple(scores1_),(trick_lead,),(board1,))]
+        else:
+            return [((0,0,),tuple(scores1_),)]
     else:
         successors  = successor(state)
         if successors:

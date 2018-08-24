@@ -1,4 +1,5 @@
 import time, pstats, cProfile, io
+from line_profiler import LineProfiler
 from common import *
 
 # Case Studies:
@@ -7,7 +8,7 @@ t0  = time.clock()
 state  = initial_state()
 print_state(state)
 print()
-for _ in range(24):
+for _ in range(32):
     state = next_state(state)
     if state:
         print_state(state)
@@ -26,6 +27,11 @@ print()
 
 print_state(state)
 print(pd.DataFrame([(card_to_console(x[0]),x[1]) for x in r],columns=('play','scores')).drop_duplicates())
+
+reset_memoized_states()
+lp  = LineProfiler(simulation_step)
+lp.runctx("r=simulation(state,goals='min',terminal='round_end',return_path=True)",globals(),locals())
+lp.print_stats()
 
 # reset_memoized_states()
 # cProfile.runctx("r2=simulation(state,goals='min',terminal='round_end',return_path=False)",globals(),locals(),'sim_stats.prf')
